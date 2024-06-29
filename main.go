@@ -1,68 +1,66 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/gen2brain/beeep"
+	"github.com/olebedev/when"
+	"github.com/olebedev/when/rules/common"
+	"github.com/olebedev/when/rules/en"
 )
 
-const reminderFile = "reminders.txt"
+const (
+	markName  = "GOLANG CLI REMINDER"
+	markValue = "1"
+)
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Println("Usage: reminder [add|list]")
-		return
-	}
-
-	command := os.Args[1]
-	switch command {
-	case "add":
-		addReminder()
-	case "list":
-		listReminders()
-	default:
-		fmt.Println("Unknown command:", command)
-	}
-}
-
-func addReminder() {
 	if len(os.Args) < 3 {
-		fmt.Println("Usage: reminder add [your reminder]")
-		return
+		fmt.Printf("Usage: %s <hh:mm> <text message\n>", os.Args[0])
+		os.Exit(1)
 	}
 
-	reminder := strings.Join(os.Args[2:], " ")
-	file, err := os.OpenFile(reminderFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	now := time.Now()
+
+	w := when.New(nil)
+	w.Add(en.All...)
+	w.Add(common.All...)
+
+	t, err := w.Parse(os.Args[1], now)
 	if err != nil {
-		fmt.Println("Error opening file:", err)
-		return
+		fmt.Printf(err.Error())
+		os.Exit(2)
 	}
-	defer file.Close()
-
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	entry := fmt.Sprintf("%s - %s\n", timestamp, reminder)
-	if _, err := file.WriteString(entry); err != nil {
-		fmt.Println("Error writing to file:", err)
+	if t == nil {
+		fmt.Println("Unable to parse time!")
+		os.Exit(2)
 	}
-	fmt.Println("Reminder added!")
-}
-
-func listReminders() {
-	file, err := os.Open(reminderFile)
-	if err != nil {
-		fmt.Println("Error opening file:", err)
-		return
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		fmt.Println(scanner.Text())
+	if now.After(t.Time) {
+		fmt.Println("set a future time!")
+		os.Exit(3)
 	}
 
-	if err := scanner.Err(); err != nil {
-		fmt.Println("Error reading file:", err)
+	diff := t.Time.Sub(now)
+	if os.Getenv(markName) == markValue {
+		time.Sleep(diff)
+		err := beeep.Alert("Reminder", strings.Join(os.Args[2:], " "), "assets/information.png")
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(4)
+		}
+	} else {
+		cmd := exec.Command(os.Args[0], os.Args[1:]...)
+		cmd.Env = append(os.Environ(), fmt.Sprintf("%s=%s", markName, markValue))
+		if err := cmd.Start(); err != nil {
+			fmt.Println(err)
+			os.Exit(5)
+		}
+		fmt.Println("Reminder will be displayed after", diff.Round(time.Second))
+		os.Exit(0)
 	}
+
 }
